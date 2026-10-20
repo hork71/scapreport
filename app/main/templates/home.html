@@ -1,0 +1,196 @@
+{% extends 'base.html' %}
+{% set active_page = 'home' %}
+
+{# One entry per OS tab: pane = tab id, table = table id, api = /baseline/api/<api> #}
+{% set tabs = [
+  {'pane': 'redhat8v4', 'table': 'rh8v4', 'label': 'RedHat 8',  'version': 'v4.0.0', 'api': 'redhat_8v4'},
+  {'pane': 'redhat9',   'table': 'rh9',   'label': 'RedHat 9',  'version': 'v2.0.0', 'api': 'redhat_9'},
+  {'pane': 'sles',      'table': 'sl',    'label': 'Sles 15',   'version': 'v2.0.1', 'api': 'sles_15'},
+  {'pane': 'sles16',    'table': 'sl16',  'label': 'Sles 16',   'version': 'v1.0.0', 'api': 'sles_16'},
+  {'pane': 'ubuntu22',  'table': 'ub22',  'label': 'Ubuntu 22', 'version': 'v3.0.0', 'api': 'ubuntu_22'},
+  {'pane': 'ubuntu24',  'table': 'ub24',  'label': 'Ubuntu 24', 'version': 'v1.0.0', 'api': 'ubuntu_24'},
+] %}
+
+{% block content %}
+
+{% if current_user.is_authenticated() %}
+<ul class="nav nav-pills" id="myTab" role="tablist">
+  {% for tab in tabs %}
+  <li class="nav-item" role="presentation">
+  <button class="nav-link{% if loop.first %} active{% endif %}" id="{{ tab.pane }}-tab" data-bs-toggle="tab" data-bs-target="#{{ tab.pane }}" type="button" role="tab" aria-controls="{{ tab.pane }}" aria-selected="{{ 'true' if loop.first else 'false' }}">{{ tab.label }} <small>({{ tab.version }})</small></button>
+  </li>
+  {% endfor %}
+</ul>
+<div class="tab-content" id="myTabContent">
+  {% for tab in tabs %}
+  <div class="tab-pane fade{% if loop.first %} show active{% endif %}" id="{{ tab.pane }}" role="tabpanel" aria-labelledby="{{ tab.pane }}-tab">
+
+    <table id="{{ tab.table }}" class="table table-bordered table-sm" cellspacing="0" style="width:100%">
+        {% for section in ['thead', 'tfoot'] %}
+        <{{ section }}>
+            <tr>
+                <th>Nr</th>
+                <th>Voorschrift</th>
+                <th>Type</th>
+                <th>Comply</th>
+                <th>Voortgang</th>
+                <th>Fail</th>
+                <th>Pass</th>
+            </tr>
+        </{{ section }}>
+        {% if loop.first %}
+        <tbody>
+        </tbody>
+        {% endif %}
+        {% endfor %}
+    </table>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+  {% include 'home/_landing.html' %}
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  //const BASE = {{ request.script_root | tojson }};
+  //console.log(`${BASE}`);
+  const TABS = {{ tabs | tojson }};
+  const taal = {
+    "sProcessing": "Bezig...",
+    "sLengthMenu": "_MENU_ resultaten weergeven",
+    "sZeroRecords": "Geen resultaten gevonden",
+    "sInfo": "_START_ tot _END_ van _TOTAL_ resultaten",
+    "sInfoEmpty": "Geen resultaten om weer te geven",
+    "sInfoFiltered": " (gefilterd uit _MAX_ resultaten)",
+    "sInfoPostFix": "",
+    "sSearch": "Zoeken:",
+    "sEmptyTable": "Geen resultaten aanwezig in de tabel",
+    "sInfoThousands": ".",
+    "sLoadingRecords": "Een moment geduld aub - bezig met laden...",
+    "oPaginate": {
+        "sFirst": "Eerste",
+        "sLast": "Laatste",
+        "sNext": "Volgende",
+        "sPrevious": "Vorige"
+    }
+  };
+  const comply_icons = {
+    'ja':           '<img src="{{ url_for('static', filename='images/check.svg') }}" class="filter-blue" alt="ja">',
+    'nee':          '<img src="{{ url_for('static', filename='images/x.svg') }}" class="filter-red" alt="nee">',
+    'niet bepaald': '<img src="{{ url_for('static', filename='images/record2.svg') }}" class="filter-gray" alt="niet bepaald">',
+  };
+  function format(d) {
+    return '<table cellpadding="5" cellspacing="0" border="0" style="padding-left:50px;">'+
+        '<tr>'+
+            '<td><strong>FPN:</strong></td>'+
+            '<td>'+d.rule_type+'</td>'+
+        '</tr>'+
+        '<tr>'+
+            '<td><strong>Tooling:<strong></td>'+
+            '<td>'+d.rationale+'</td>'+
+        '</tr>'+
+        '<tr>'+
+            '<td><strong>Analyse:<strong></td>'+
+            '<td>'+d.backlog+'</td>'+
+        '</tr>'+
+        '<tr>'+
+            '<td><strong>Commentaar:</strong></td>'+
+            '<td>'+d.analyse+'</td>'+
+        '</tr>'+
+    '</table>';
+  }
+
+  // SCAP total as a badge; empty when there are no SCAP results for this referte
+  function scap_column(field, color) {
+    return {className: 'dt-center',
+     data: field,
+      render: function (data, type, row, meta) {
+        if (type == 'sort' || type == 'type') return data == null ? -1 : data;
+        if (type === 'display') {
+          return data == null ? '' : `<span class="badge bg-${color}">${data}</span>`;
+        }
+        return data == null ? '' : data;
+      }
+    };
+  }
+
+  function baseline_table(tab) {
+    var table = $('#' + tab.table).DataTable({
+      pageLength: 25,
+      order: [],
+      language: taal,
+      responsive: true,
+      ajax: '/baseline/api/' + tab.api,
+      columns: [
+        {data: null,
+         render: function ( data, type, row, meta ) {
+          if (type == 'sort' || type == 'filter' || type == 'type') return data.ruleid;
+          if (type === 'display') {
+            return `<a href="/baseline/benchmark/${data.id}" target="_blank" class="text-decoration-none">${data.ruleid}</a>`;
+          }
+          return data;
+         }
+        },
+        {data: 'name'},
+        {data: 'rule_type'},
+        {className: 'dt-center',
+         data: null,
+          render: function (data, type, row, meta) {
+            if (type == 'sort' || type == 'type') return data.comply;
+            if (type === 'display') {
+              return comply_icons[data.comply] || data.comply;
+            }
+            return data;
+          }
+        },
+        {className: 'dt-center',
+         data: null,
+          render: function (data, type, row, meta) {
+            if (type == 'sort' || type == 'type') return data.voortgang;
+            if (type === 'display') {
+              return `<span><progress value="${data.voortgang}" min="0" max="100"></progress></span>`;
+            }
+            return data;
+          }
+        },
+        scap_column('scap_failed', 'danger'),
+        scap_column('scap_passed', 'success'),
+      ],
+    });
+
+    $('#' + tab.table + ' tbody').on('click', 'td.dt-control', function () {
+        var tr = $(this).closest('tr');
+        var row = table.row( tr );
+
+        if ( row.child.isShown() ) {
+            row.child.hide();
+            tr.removeClass('shown');
+        }
+        else {
+            row.child( format(row.data()) ).show();
+            tr.addClass('shown');
+        }
+    });
+
+    return table;
+  }
+
+  $(document).ready(function() {
+    // tab pane id (#redhat9) -> DataTable
+    var tables = {};
+    TABS.forEach(function (tab) {
+      tables['#' + tab.pane] = baseline_table(tab);
+    });
+
+    $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (event) {
+      var table = tables[$(event.target).attr('data-bs-target')];
+      if (table) {
+        table.columns.adjust().responsive.recalc();
+      }
+    });
+  });
+</script>
+{% endblock %}

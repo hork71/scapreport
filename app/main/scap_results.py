@@ -22,3 +22,18 @@ def lookup(os_version, ruleid):
         return json.loads(path.read_text())
     except (OSError, ValueError):
         return None
+
+
+def summary(os_version):
+    """Fail/pass totals for all refertes of one os_version: {referte: {"failed": n, "passed": n}}.
+
+    Returns {} when there is no summary for this os_version.
+    """
+    if not (os_version and SAFE_NAME.match(os_version)):
+        return {}
+
+    path = Path(current_app.config["SCAP_REPORT_DIR"]) / f"{os_version}.summary.json"
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}

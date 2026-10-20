@@ -26,41 +26,49 @@ class DataForm(FlaskForm):
 def home():
         return render_template('home.html')
 
+def baseline_data(os_version, cis_version=None):
+    """Baselines for one os_version, with SCAP fail/pass totals per referte added."""
+    query = Baseline.query.filter(Baseline.os_version == os_version)
+    if cis_version:
+        query = query.filter(Baseline.cis_version == cis_version)
+
+    totals = scap_results.summary(os_version)
+    data = []
+    for baseline in query.all():
+        row = baseline.to_dict()
+        scap = totals.get(row['ruleid'], {})
+        row['scap_failed'] = scap.get('failed')
+        row['scap_passed'] = scap.get('passed')
+        data.append(row)
+    return {'data': data}
+
 #@main.route('/api/redhat_8')
 #def data():
-#       return {'data': [baseline.to_dict() for baseline in Baseline.query.filter(Baseline.os_version == 'rh_8', Baseline.cis_version == '3.0.0').all()]}
+#       return baseline_data('rh_8', '3.0.0')
 
 @main.route('/api/redhat_8v4')
 def data():
-        return {'data': [baseline.to_dict() for baseline in Baseline.query.filter(Baseline.os_version == 'rh_8v4').all()]}
+        return baseline_data('rh_8v4')
 
 @main.route('/api/redhat_9')
 def data3():
-        return {'data': [baseline.to_dict() for baseline in Baseline.query.filter(Baseline.os_version == 'rh_9', Baseline.cis_version == '2.0.0').all()]}
-
-#@main.route('/api/redhat_9v2')
-#def data6():
-#       return {'data': [baseline.to_dict() for baseline in Baseline.query.filter(Baseline.os_version == 'rh_9v2').all()]}
+        return baseline_data('rh_9', '2.0.0')
 
 @main.route('/api/sles_15')
 def data1():
-        return {'data': [baseline.to_dict() for baseline in Baseline.query.filter(Baseline.os_version == 'sl_15', Baseline.cis_version == '2.0.1').all()]}
+        return baseline_data('sl_15', '2.0.1')
 
 @main.route('/api/sles_16')
 def data6():
-        return {'data': [baseline.to_dict() for baseline in Baseline.query.filter(Baseline.os_version == 'sl_16', Baseline.cis_version == '1.0.0').all()]}
-
-#@main.route('/api/ubuntu_20')
-#def data2():
-#       return {'data': [baseline.to_dict() for baseline in Baseline.query.filter(Baseline.os_version == 'ub_20', Baseline.cis_version == '3.0.0').all()]}
+        return baseline_data('sl_16', '1.0.0')
 
 @main.route('/api/ubuntu_22')
 def data4():
-        return {'data': [baseline.to_dict() for baseline in Baseline.query.filter(Baseline.os_version == 'ub_22', Baseline.cis_version == '3.0.0').all()]}
+        return baseline_data('ub_22', '3.0.0')
 
 @main.route('/api/ubuntu_24')
 def data5():
-        return {'data': [baseline.to_dict() for baseline in Baseline.query.filter(Baseline.os_version == 'ub_24', Baseline.cis_version == '1.0.0').all()]}
+        return baseline_data('ub_24', '1.0.0')
 
 @main.route('/benchmark/<id>')
 @login_required

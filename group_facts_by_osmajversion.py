@@ -130,6 +130,16 @@ for name, data in report.items():
     tmp_file.replace(out_file)
     print(f"wrote {out_file}")
 
+    # fail/pass totals per referte for the homepage tables: reports/<os>.summary.json
+    summary_file = OUTPUT_DIR / f"{name}.summary.json"
+    tmp_file = summary_file.with_suffix(".json.tmp")
+    write_json(tmp_file, {
+        ref: {"failed": len(entry["failed"]), "passed": len(entry["passed"])}
+        for ref, entry in data.items()
+    })
+    tmp_file.replace(summary_file)
+    print(f"wrote {summary_file}")
+
     # one small file per referte for the Flask benchmark page: reports/<os>/<referte>.json
     # built in a temp dir and swapped in, so stale refertes disappear as well
     out_dir = OUTPUT_DIR / name
