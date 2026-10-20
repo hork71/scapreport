@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row">
+  <div class="col-4">
+    <div class="card" style="width: 300px;">
+        <div class="card-body">
+          <ul class="list-group list-group-flush">
+              <li class="list-group-item spanflex"><span><strong>ID</strong></span> <span>{{ osb.data[0].ruleid }}</span></li>
+              <li class="list-group-item spanflex"><span><strong>Os</strong></span> <span>{{ osb.data[0].os_version }}</span></li>
+              {% if osb.data[0].comply == 'ja' %}
+                  <li class="list-group-item spanflex"><span><strong>Comply</strong></span> <span><img class="filter-blue" src="{{ url_for('static', filename='images/check-lg.svg') }}"</span></li>
+              {% elif osb.data[0].comply == 'nee' %}
+                  <li class="list-group-item spanflex"><span><strong>Comply</strong></span> <span><img class="filter-red" src="{{ url_for('static', filename='images/x-lg.svg') }}"</span></li>
+              {% elif osb.data[0].comply == 'niet bepaald' %}
+                  <li class="list-group-item spanflex"><span><strong>Comply</strong></span> <span><img class="filter-gray" src="{{ url_for('static', filename='images/record2.svg') }}"</span></li>
+              {% else %}
+                <li class="list-group-item spanflex"><span><strong>Comply</strong></span> <span></span></li>
+              {% endif %}
+              {% if osb.data[0].backlog == 'ja' %}
+                  <li class="list-group-item spanflex"><span><strong>Backlog</strong></span> <span><img class="filter-blue" src="{{ url_for('static', filename='images/check-lg.svg') }}"</span></li>
+              {% endif %}
+              <li class="list-group-item spanflex"><span><strong>Document Versie</strong></span> <span>{{ osb.data[0].cis_version }}</span></li>
+              <li class="list-group-item spanflex"><span><strong>Voortgang</strong></span> <span><progress id="file" value="{{ osb.data[0].voortgang }}" min="0" max="100"></progress></span></li>
+          </ul>
+      </div>
+    </div>
+    <br>
+    {% if current_user.is_role(Role.ADMIN) or current_user.is_role(Role.EDITOR)%}
+    <div class="d-grid gap-2" style="width: 300px;">
+      <a href="/baseline/edit/{{ osb.data[0].id }}" class="btn btn-primary btn-sm fs-6" id="bewerk-knop" role="button">Bewerken</a>
+    </div>
+    {% endif %}
+    <br>
+    <div class="card" style="width: 300px;">
+      <div class="card-header"><strong>SCAP resultaten</strong></div>
+      {% if scap %}
+      <div class="card-body pb-0">
+        <div class="d-flex gap-2">
+          <span class="badge bg-danger">{{ scap.failed|length }} fail</span>
+          <span class="badge bg-success">{{ scap.passed|length }} pass</span>
+          {% if scap.other %}<span class="badge bg-secondary">{{ scap.other|length }} overig</span>{% endif %}
+        </div>
+      </div>
+      <div class="card-body">
+        <ul class="list-group list-group-flush">
+          {% for rule_id, rule in scap.rules.items() %}
+          <li class="list-group-item px-0">
+            <div class="mb-1" title="{{ rule_id }}"><strong>{{ rule.titel or rule_id }}</strong></div>
+            {% for key, label, color in [('failed', 'Fail', 'danger'), ('passed', 'Pass', 'success'), ('other', 'Overig', 'secondary')] %}
+              {% if rule[key] %}
+              <details>
+                <summary><span class="badge bg-{{ color }}">{{ rule[key]|length }}</span> {{ label }}</summary>
+                <ul class="list-unstyled small mb-1 ps-3" style="max-height: 200px; overflow-y: auto;">
+                  {% for host in rule[key] %}<li>{{ host }}</li>{% endfor %}
+                </ul>
+              </details>
+              {% elif key != 'other' %}
+              <div><span class="badge bg-{{ color }}">0</span> {{ label }}</div>
+              {% endif %}
+            {% endfor %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% else %}
+      <div class="card-body text-muted small">Geen SCAP resultaten voor deze referte.</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-8">
+    <object data="{{ url_for('static', filename='pdf/' + eindbestand) }}" type="application/pdf" style="min-height:100vh;width:100%"></object>
+    <br>
+    <br>
+    <hr>
+    <div class="accordion" id="accordionExample">
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingOne">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="false" aria-controls="collapseOne">
+                  <strong>Administratie</strong>
+                </button>
+            </h2>
+          <div id="collapseOne" class="accordion-collapse collapse" aria-labelledby="headingOne" data-bs-parent="#accordionExample">
+            <div class="accordion-body">
+                <div class="accordion" id="accordionExampleOne">
+                {% if osb.data[0].comply == 'ja' %}
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="headingOneOne">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOneOne" aria-expanded="false" aria-controls="collapseOneOne">
+                              Borging
+                            </button>
+                        </h2>
+                      <div id="collapseOneOne" class="accordion-collapse collapse" aria-labelledby="headingOneOne" data-bs-parent="#accordionExampleOne">
+                        <div class="accordion-body">
+                        {% if osb.data[0].implementatie %}
+                          <p>{{ osb.data[0].implementatie }}</p>
+                        {% else %}
+                          <p>Verwijs voor de borging naar een puppet module middels 'Bewerken'</p>
+                        {% endif %}
+                        </div>
+                      </div>
+                    </div>
+                {% elif osb.data[0].comply == 'nee' %}
+                    <div class="accordion-item">
+                      <h2 class="accordion-header" id="headingOneTwo">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOneTwo" aria-expanded="false" aria-controls="collapseOneTwo">
+                          Verantwoording
+                        </button>
+                      </h2>
+                      <div id="collapseOneTwo" class="accordion-collapse collapse" aria-labelledby="headingOneTwo" data-bs-parent="#accordionExampleOne">
+                        <div class="accordion-body">
+                          <p>{{ osb.data[0].verantwoording }}</p>
+                        </div>
+                      </div>
+                    </div>
+                {% endif %}
+                    <div class="accordion-item">
+                      <h2 class="accordion-header" id="headingOneThree">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOneThree" aria-expanded="false" aria-controls="collapseOneThree">
+                          D/300
+                        </button>
+                      </h2>
+                      <div id="collapseOneThree" class="accordion-collapse collapse" aria-labelledby="headingOneThree" data-bs-parent="#accordionExampleOne">
+                        <div class="accordion-body">
+                          <strong>Uit te voeren</strong> Link D/300 opnemen
+                        </div>
+                      </div>
+                    </div>
+                </div>
+            </div>
+          </div>
+        </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  window.addEventListener("beforeunload", function() {
+      $.ajax({
+        type: "GET",
+        url: "{{ url_for('main.delete_pdf', id=eindbestand) }}"
+      }).done(function() {
+        console.log('');
+      });
+  });
+</script>
+{% endblock %}
+

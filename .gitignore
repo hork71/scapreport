@@ -1,0 +1,9 @@
+# sample data with real hostnames
+rh8.json
+
+# generated SCAP reports
+reports/
+
+__pycache__/
+*.pyc
+.DS_Store
