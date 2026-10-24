@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+{% set active_page = 'servers' %}
+
+{% block content %}
+<div class="row">
+  <div class="col-4">
+    <div class="card" style="width: 300px;">
+        <div class="card-body">
+          <ul class="list-group list-group-flush">
+              <li class="list-group-item spanflex"><span><strong>Server</strong></span> <span>{{ certname.split('.')[0] }}</span></li>
+              <li class="list-group-item spanflex"><span><strong>Os</strong></span> <span>{{ tab.os_version }}</span></li>
+              <li class="list-group-item spanflex"><span><strong>Fail</strong></span> <span>{{ info.failed }}</span></li>
+              <li class="list-group-item spanflex"><span><strong>Pass</strong></span> <span>{{ info.passed }}</span></li>
+              {% if info.other %}
+              <li class="list-group-item spanflex"><span><strong>Overig</strong></span> <span>{{ info.other }}</span></li>
+              {% endif %}
+              <li class="list-group-item spanflex"><span><strong>Controls</strong></span> <span>{{ rows|length }}</span></li>
+          </ul>
+          <p class="text-muted small mt-2 mb-0">Fail/Pass tellen per referte; een referte faalt als een van de controls faalt.</p>
+      </div>
+    </div>
+    <br>
+    <div class="d-grid gap-2" style="width: 300px;">
+      <a href="{{ url_for('main.servers') }}" class="btn btn-primary btn-sm fs-6" role="button">Alle servers</a>
+    </div>
+  </div>
+  <div class="col-8">
+    <h5 class="mb-3">{{ certname }}</h5>
+    <table id="controls" class="table table-bordered table-sm" cellspacing="0" style="width:100%">
+        <thead>
+            <tr>
+                <th>Nr</th>
+                <th>Voorschrift</th>
+                <th>SCAP control</th>
+                <th>Schaal</th>
+                <th>Resultaat</th>
+                <th>Reden</th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const ROWS = {{ rows | tojson }};
+{% include '_datatables_taal.html' %}
+
+  // SCAP texts come from the servers, so escape them before DataTables inserts them as html
+  function esc(text) {
+    return $('<div>').text(text == null ? '' : text).html();
+  }
+
+  function text_column(field) {
+    return {data: field,
+      render: function (data, type, row, meta) {
+        return type === 'display' ? esc(data) : data;
+      }
+    };
+  }
+
+  $(document).ready(function() {
+    $('#controls').DataTable({
+      data: ROWS,
+      pageLength: 50,
+      order: [],   // rows arrive sorted: fail first, then by referte
+      language: taal,
+      responsive: true,
+      columns: [
+        {data: 'referte',
+         render: function (data, type, row, meta) {
+          if (type == 'sort' || type == 'type') return row.referte_sort;
+          if (type === 'display' && row.baseline_id) {
+            return `<a href="/baseline/benchmark/${row.baseline_id}" target="_blank" class="text-decoration-none">${esc(data)}</a>`;
+          }
+          return type === 'display' ? esc(data) : data;
+         }
+        },
+        text_column('voorschrift'),
+        {data: 'titel',
+         render: function (data, type, row, meta) {
+          return type === 'display' ? `<span title="${esc(row.rule_id)}">${esc(data || row.rule_id)}</span>` : data;
+         }
+        },
+        text_column('schaal'),
+        {data: 'status',
+         render: function (data, type, row, meta) {
+          if (type == 'sort' || type == 'type') return row.status_order;
+          return type === 'display' ? esc(data) : data;
+         }
+        },
+        text_column('reason'),
+      ],
+    });
+  });
+</script>
+{% endblock %}

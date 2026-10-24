@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% set active_page = 'servers' %}
+
+{# tabs: the OS tab list from app/main/tabs.py #}
+
+{% block content %}
+<ul class="nav nav-pills" id="serverTab" role="tablist">
+  {% for tab in tabs %}
+  <li class="nav-item" role="presentation">
+  <button class="nav-link{% if loop.first %} active{% endif %}" id="{{ tab.pane }}-tab" data-bs-toggle="tab" data-bs-target="#{{ tab.pane }}" type="button" role="tab" aria-controls="{{ tab.pane }}" aria-selected="{{ 'true' if loop.first else 'false' }}">{{ tab.label }} <small>({{ tab.version }})</small></button>
+  </li>
+  {% endfor %}
+</ul>
+<div class="tab-content" id="serverTabContent">
+  {% for tab in tabs %}
+  <div class="tab-pane fade{% if loop.first %} show active{% endif %}" id="{{ tab.pane }}" role="tabpanel" aria-labelledby="{{ tab.pane }}-tab">
+
+    <table id="{{ tab.table }}" class="table table-bordered table-sm" cellspacing="0" style="width:100%">
+        {% for section in ['thead', 'tfoot'] %}
+        <{{ section }}>
+            <tr>
+                <th>Server</th>
+                <th>Fail</th>
+                <th>Pass</th>
+                <th>Overig</th>
+            </tr>
+        </{{ section }}>
+        {% if loop.first %}
+        <tbody>
+        </tbody>
+        {% endif %}
+        {% endfor %}
+    </table>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const TABS = {{ tabs | tojson }};
+{% include '_datatables_taal.html' %}
+
+  function count_column(field) {
+    return {data: field, className: 'dt-center'};
+  }
+
+  function server_table(tab) {
+    var table = $('#' + tab.table).DataTable({
+      pageLength: 25,
+      order: [[1, 'desc']],   // most failures first
+      language: taal,
+      responsive: true,
+      ajax: '/baseline/api/servers/' + tab.os_version,
+      columns: [
+        {data: 'certname',
+         render: function (data, type, row, meta) {
+          if (type === 'display') {
+            var link = `<a href="/baseline/server/${tab.os_version}/${data}" class="text-decoration-none">${data}</a>`;
+            return row.controls ? link : link + ' <span class="text-muted">(geen resultaten)</span>';
+          }
+          return data;
+         }
+        },
+        count_column('failed'),
+        count_column('passed'),
+        count_column('other'),
+      ],
+    });
+    return table;
+  }
+
+  $(document).ready(function() {
+    // each tab loads its servers the first time it is opened
+    var tables = {};
+    var first = TABS[0];
+    if (first) {
+      tables['#' + first.pane] = server_table(first);
+    }
+
+    $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (event) {
+      var pane = $(event.target).attr('data-bs-target');
+      if (tables[pane]) {
+        tables[pane].columns.adjust().responsive.recalc();
+        return;
+      }
+      var tab = TABS.find(function (t) { return '#' + t.pane === pane; });
+      if (tab) {
+        tables[pane] = server_table(tab);
+      }
+    });
+  });
+</script>
+{% endblock %}

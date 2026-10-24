@@ -52,7 +52,7 @@
               <details>
                 <summary><span class="badge bg-{{ color }}">{{ rule[key]|length }}</span> {{ label }}</summary>
                 <ul class="list-unstyled small mb-1 ps-3" style="max-height: 200px; overflow-y: auto;">
-                  {% for host in rule[key] %}<li>{{ host }}</li>{% endfor %}
+                  {% for host in rule[key] %}<li><a href="{{ url_for('main.show_server', os_version=osb.data[0].os_version, certname=host) }}" class="text-decoration-none">{{ host }}</a></li>{% endfor %}
                 </ul>
               </details>
               {% elif key != 'other' %}

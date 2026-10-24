@@ -1,6 +1,6 @@
 import sys
 import os
-from flask import Blueprint, render_template, session, request, url_for, redirect, flash
+from flask import Blueprint, render_template, session, request, url_for, redirect, flash, abort
 from flask_wtf import FlaskForm
 from wtforms import StringField, SubmitField
 from app import db
@@ -11,9 +11,14 @@ from sqlalchemy import desc
 sys.path.append(os.path.abspath("./app/main/"))
 import utils
 from app.main import scap_results
+from app.main.tabs import TABS, TABS_BY_API, TABS_BY_OS
 
 
 main = Blueprint('main', __name__, template_folder='templates')
+
+@main.context_processor
+def inject_tabs():
+    return {'tabs': TABS}
 
 class DataForm(FlaskForm):
   osversie = StringField("Os")
@@ -42,33 +47,41 @@ def baseline_data(os_version, cis_version=None):
         data.append(row)
     return {'data': data}
 
-#@main.route('/api/redhat_8')
-#def data():
-#       return baseline_data('rh_8', '3.0.0')
+@main.route('/api/<api>')
+def baselines_api(api):
+    tab = TABS_BY_API.get(api) or abort(404)
+    return baseline_data(tab['os_version'], tab['cis_version'])
 
-@main.route('/api/redhat_8v4')
-def data():
-        return baseline_data('rh_8v4')
+@main.route('/servers')
+@login_required
+def servers():
+    return render_template('servers.html')
 
-@main.route('/api/redhat_9')
-def data3():
-        return baseline_data('rh_9', '2.0.0')
+@main.route('/api/servers/<os_version>')
+@login_required
+def servers_api(os_version):
+    TABS_BY_OS.get(os_version) or abort(404)
+    return {'data': scap_results.servers(os_version)}
 
-@main.route('/api/sles_15')
-def data1():
-        return baseline_data('sl_15', '2.0.1')
+@main.route('/server/<os_version>/<certname>')
+@login_required
+def show_server(os_version, certname):
+    tab = TABS_BY_OS.get(os_version) or abort(404)
+    rows = scap_results.server(os_version, certname)
+    if rows is None:
+        abort(404)
+    info = next((s for s in scap_results.servers(os_version) if s['certname'] == certname), {})
 
-@main.route('/api/sles_16')
-def data6():
-        return baseline_data('sl_16', '1.0.0')
+    # link each control to its benchmark page and show the CIS title
+    baselines = {b.ruleid: b for b in Baseline.query.filter(Baseline.os_version == os_version,
+                                                            Baseline.cis_version == tab['cis_version'])}
+    for row in rows:
+        baseline = baselines.get(row['referte'])
+        row['baseline_id'] = baseline.id if baseline else None
+        row['voorschrift'] = baseline.name if baseline else ''
 
-@main.route('/api/ubuntu_22')
-def data4():
-        return baseline_data('ub_22', '3.0.0')
-
-@main.route('/api/ubuntu_24')
-def data5():
-        return baseline_data('ub_24', '1.0.0')
+    return render_template('server.html', tab=tab, certname=certname,
+                           info=info, rows=rows)
 
 @main.route('/benchmark/<id>')
 @login_required

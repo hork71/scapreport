@@ -1,15 +1,7 @@
 {% extends 'base.html' %}
 {% set active_page = 'home' %}
 
-{# One entry per OS tab: pane = tab id, table = table id, api = /baseline/api/<api> #}
-{% set tabs = [
-  {'pane': 'redhat8v4', 'table': 'rh8v4', 'label': 'RedHat 8',  'version': 'v4.0.0', 'api': 'redhat_8v4'},
-  {'pane': 'redhat9',   'table': 'rh9',   'label': 'RedHat 9',  'version': 'v2.0.0', 'api': 'redhat_9'},
-  {'pane': 'sles',      'table': 'sl',    'label': 'Sles 15',   'version': 'v2.0.1', 'api': 'sles_15'},
-  {'pane': 'sles16',    'table': 'sl16',  'label': 'Sles 16',   'version': 'v1.0.0', 'api': 'sles_16'},
-  {'pane': 'ubuntu22',  'table': 'ub22',  'label': 'Ubuntu 22', 'version': 'v3.0.0', 'api': 'ubuntu_22'},
-  {'pane': 'ubuntu24',  'table': 'ub24',  'label': 'Ubuntu 24', 'version': 'v1.0.0', 'api': 'ubuntu_24'},
-] %}
+{# tabs: the OS tab list from app/main/tabs.py #}
 
 {% block content %}
 
@@ -32,8 +24,6 @@
                 <th>Nr</th>
                 <th>Voorschrift</th>
                 <th>Type</th>
-                <th>Comply</th>
-                <th>Voortgang</th>
                 <th>Fail</th>
                 <th>Pass</th>
             </tr>
@@ -58,25 +48,7 @@
   //const BASE = {{ request.script_root | tojson }};
   //console.log(`${BASE}`);
   const TABS = {{ tabs | tojson }};
-  const taal = {
-    "sProcessing": "Bezig...",
-    "sLengthMenu": "_MENU_ resultaten weergeven",
-    "sZeroRecords": "Geen resultaten gevonden",
-    "sInfo": "_START_ tot _END_ van _TOTAL_ resultaten",
-    "sInfoEmpty": "Geen resultaten om weer te geven",
-    "sInfoFiltered": " (gefilterd uit _MAX_ resultaten)",
-    "sInfoPostFix": "",
-    "sSearch": "Zoeken:",
-    "sEmptyTable": "Geen resultaten aanwezig in de tabel",
-    "sInfoThousands": ".",
-    "sLoadingRecords": "Een moment geduld aub - bezig met laden...",
-    "oPaginate": {
-        "sFirst": "Eerste",
-        "sLast": "Laatste",
-        "sNext": "Volgende",
-        "sPrevious": "Vorige"
-    }
-  };
+{% include '_datatables_taal.html' %}
   const comply_icons = {
     'ja':           '<img src="{{ url_for('static', filename='images/check.svg') }}" class="filter-blue" alt="ja">',
     'nee':          '<img src="{{ url_for('static', filename='images/x.svg') }}" class="filter-red" alt="nee">',
@@ -110,7 +82,8 @@
       render: function (data, type, row, meta) {
         if (type == 'sort' || type == 'type') return data == null ? -1 : data;
         if (type === 'display') {
-          return data == null ? '' : `<span class="badge bg-${color}">${data}</span>`;
+          //return data == null ? '' : `<span class="badge bg-${color}">${data}</span>`;
+          return data == null ? '' : `<span>${data}</span>`;
         }
         return data == null ? '' : data;
       }
@@ -136,26 +109,6 @@
         },
         {data: 'name'},
         {data: 'rule_type'},
-        {className: 'dt-center',
-         data: null,
-          render: function (data, type, row, meta) {
-            if (type == 'sort' || type == 'type') return data.comply;
-            if (type === 'display') {
-              return comply_icons[data.comply] || data.comply;
-            }
-            return data;
-          }
-        },
-        {className: 'dt-center',
-         data: null,
-          render: function (data, type, row, meta) {
-            if (type == 'sort' || type == 'type') return data.voortgang;
-            if (type === 'display') {
-              return `<span><progress value="${data.voortgang}" min="0" max="100"></progress></span>`;
-            }
-            return data;
-          }
-        },
         scap_column('scap_failed', 'danger'),
         scap_column('scap_passed', 'success'),
       ],
@@ -179,7 +132,6 @@
   }
 
   $(document).ready(function() {
-    // tab pane id (#redhat9) -> DataTable
     var tables = {};
     TABS.forEach(function (tab) {
       tables['#' + tab.pane] = baseline_table(tab);

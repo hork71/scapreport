@@ -94,6 +94,46 @@ def group_by_referte(servers):
     return out
 
 
+def group_by_server(servers):
+    """Per-server view of the results.
+
+    Returns (index, rules, results):
+      index   [{certname, failed, passed, other, controls}], counts per referte
+      rules   {rule id: {referte, titel, schaal}}, shared by all servers
+      results {certname: {rule id: {resultaat, exception, reason}}}
+    """
+    index, rules, results = [], {}, {}
+    for server in servers:
+        certname = server["certname"]
+        per_ref = defaultdict(list)
+        controls = {}
+        for r in server["openscap"] or []:
+            rule_id = r.get("id", "?")
+            ref = r.get("referte") or NO_REF
+            per_ref[ref].append(r)
+            rules[rule_id] = {
+                "referte": r.get("referte") or "",
+                "titel": r.get("titel", ""),
+                "schaal": r.get("schaal", ""),
+            }
+            controls[rule_id] = {
+                "resultaat": r.get("resultaat"),
+                "exception": bool(r.get("exception")),
+                "reason": r.get("reason", ""),
+            }
+
+        # same rule as the referte totals: a referte fails when any of its controls fails
+        counts = {"failed": 0, "passed": 0, "other": 0}
+        for ref, ref_results in per_ref.items():
+            if ref != NO_REF:
+                counts[server_status(ref_results)] += 1
+        index.append({"certname": certname, **counts, "controls": len(controls)})
+        results[certname] = controls
+
+    index.sort(key=lambda s: s["certname"])
+    return index, rules, results
+
+
 RELEASE_NAMES = {
     "8": "rh_8",
     "9": "rh_9",
@@ -104,6 +144,8 @@ RELEASE_NAMES = {
 }
 
 # unmapped releases keep their original PuppetDB value
+servers_by_name = {RELEASE_NAMES.get(release, release): servers
+                   for release, servers in by_os_release.items()}
 report = {
     RELEASE_NAMES.get(release, release): group_by_referte(servers)
     for release, servers in sorted(by_os_release.items(),
@@ -118,8 +160,11 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 SAFE_NAME = re.compile(r"^\w[\w.-]*$")
 
 
-def write_json(path, data):
-    path.write_text(json.dumps(data, indent=2) + "\n")
+def write_json(path, data, compact=False):
+    if compact:
+        path.write_text(json.dumps(data, separators=(",", ":")) + "\n")
+    else:
+        path.write_text(json.dumps(data, indent=2) + "\n")
 
 
 for name, data in report.items():
@@ -153,8 +198,22 @@ for name, data in report.items():
         if SAFE_NAME.match(ref):
             write_json(tmp_dir / f"{ref}.json", entry)
             written += 1
+
+    # per-server results for the server pages: reports/<os>/servers/
+    #   _index.json      server list with fail/pass/other counts
+    #   _rules.json      referte, titel and schaal per control
+    #   <certname>.json  that server's result per control
+    index, rules, results = group_by_server(servers_by_name[name])
+    index = [entry for entry in index if SAFE_NAME.match(entry["certname"])]
+    servers_dir = tmp_dir / "servers"
+    servers_dir.mkdir()
+    write_json(servers_dir / "_index.json", index)
+    write_json(servers_dir / "_rules.json", rules)
+    for entry in index:
+        write_json(servers_dir / f"{entry['certname']}.json", results[entry["certname"]], compact=True)
+
     if out_dir.exists():
         out_dir.rename(old_dir)
     tmp_dir.rename(out_dir)
     shutil.rmtree(old_dir, ignore_errors=True)
-    print(f"wrote {written} referte files to {out_dir}")
+    print(f"wrote {written} referte files and {len(index)} server files to {out_dir}")
