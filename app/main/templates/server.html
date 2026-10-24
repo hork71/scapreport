@@ -2,46 +2,42 @@
 {% set active_page = 'servers' %}
 
 {% block content %}
-<div class="row">
-  <div class="col-4">
-    <div class="card" style="width: 300px;">
-        <div class="card-body">
-          <ul class="list-group list-group-flush">
-              <li class="list-group-item spanflex"><span><strong>Server</strong></span> <span>{{ certname.split('.')[0] }}</span></li>
-              <li class="list-group-item spanflex"><span><strong>Os</strong></span> <span>{{ tab.os_version }}</span></li>
-              <li class="list-group-item spanflex"><span><strong>Fail</strong></span> <span>{{ info.failed }}</span></li>
-              <li class="list-group-item spanflex"><span><strong>Pass</strong></span> <span>{{ info.passed }}</span></li>
-              {% if info.other %}
-              <li class="list-group-item spanflex"><span><strong>Overig</strong></span> <span>{{ info.other }}</span></li>
-              {% endif %}
-              <li class="list-group-item spanflex"><span><strong>Controls</strong></span> <span>{{ rows|length }}</span></li>
-          </ul>
-          <p class="text-muted small mt-2 mb-0">Fail/Pass tellen per referte; een referte faalt als een van de controls faalt.</p>
+{# summary figures: one row above the table, so the table gets the full width #}
+{% set figures = [('Os', tab.os_version), ('Fail', info.failed), ('Pass', info.passed)]
+                 + ([('Overig', info.other)] if info.other else [])
+                 + [('Controls', rows|length)] %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0">{{ certname }}</h5>
+  <a href="{{ url_for('main.servers') }}" class="btn btn-primary btn-sm fs-6" role="button">Alle servers</a>
+</div>
+<div class="row row-cols-2 row-cols-md-{{ figures|length }} g-3 mb-2">
+  {% for label, value in figures %}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body py-2">
+        <div class="text-muted small">{{ label }}</div>
+        <div class="fs-5"><strong>{{ value if value is not none else '' }}</strong></div>
       </div>
     </div>
-    <br>
-    <div class="d-grid gap-2" style="width: 300px;">
-      <a href="{{ url_for('main.servers') }}" class="btn btn-primary btn-sm fs-6" role="button">Alle servers</a>
-    </div>
   </div>
-  <div class="col-8">
-    <h5 class="mb-3">{{ certname }}</h5>
-    <table id="controls" class="table table-bordered table-sm" cellspacing="0" style="width:100%">
-        <thead>
-            <tr>
-                <th>Nr</th>
-                <th>Voorschrift</th>
-                <th>SCAP control</th>
-                <th>Schaal</th>
-                <th>Resultaat</th>
-                <th>Reden</th>
-            </tr>
-        </thead>
-        <tbody>
-        </tbody>
-    </table>
-  </div>
+  {% endfor %}
 </div>
+<p class="text-muted small mb-3">Fail/Pass tellen per referte; een referte faalt als een van de controls faalt.</p>
+
+<table id="controls" class="table table-bordered table-sm" cellspacing="0" style="width:100%">
+    <thead>
+        <tr>
+            <th>Nr</th>
+            <th>Voorschrift</th>
+            <th>SCAP control</th>
+            <th>Schaal</th>
+            <th>Resultaat</th>
+            <th>Reden</th>
+        </tr>
+    </thead>
+    <tbody>
+    </tbody>
+</table>
 {% endblock %}
 
 {% block scripts %}
