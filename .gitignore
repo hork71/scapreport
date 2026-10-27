@@ -7,3 +7,6 @@ reports/
 __pycache__/
 *.pyc
 .DS_Store
+
+# history of the SCAP results, written by the nightly script
+scap_history.sqlite

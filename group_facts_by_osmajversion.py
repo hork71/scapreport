@@ -1,16 +1,20 @@
 from collections import defaultdict
+from datetime import date
 from pathlib import Path
+import importlib.util
 import json
 import re
 import shutil
 import requests
+
+import scap_history
 
 requests.packages.urllib3.disable_warnings()
 
 url = "https://puppetdb.example.com:8081/pdb/query/v4"
 
 query = """
-inventory[certname, facts.openscap.resultaten, facts.operatingsystemmajrelease] {
+inventory[certname, timestamp, facts.openscap.resultaten, facts.operatingsystemmajrelease] {
   facts.openscap is not null and facts.operatingsystemmajrelease is not null and facts.operatingsystemmajrelease != '20.04'
 }
 """
@@ -31,6 +35,7 @@ for row in rows:
     by_os_release[release].append({
         "certname": row["certname"],
         "openscap": row["facts.openscap.resultaten"],
+        "timestamp": row.get("timestamp"),
     })
 
 FAIL = {"fail", "error"}
@@ -160,6 +165,23 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 SAFE_NAME = re.compile(r"^\w[\w.-]*$")
 
 
+def load_cis_versions():
+    """{os_version: cis_version} from the Flask app's tab list, so both use the same versions."""
+    tabs_file = Path(__file__).resolve().parent / "app" / "main" / "tabs.py"
+    spec = importlib.util.spec_from_file_location("baseline_tabs", tabs_file)
+    tabs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tabs)
+    return {tab["os_version"]: tab["cis_version"] for tab in tabs.TABS}
+
+
+# history of totals and changes per control, see scap_history.py
+HISTORY_DB = Path(__file__).resolve().parent / "scap_history.sqlite"
+SCAN_DATE = date.today().isoformat()
+CIS_VERSIONS = load_cis_versions()
+history = scap_history.connect(HISTORY_DB)
+history_rows = []
+
+
 def write_json(path, data, compact=False):
     if compact:
         path.write_text(json.dumps(data, separators=(",", ":")) + "\n")
@@ -212,8 +234,21 @@ for name, data in report.items():
     for entry in index:
         write_json(servers_dir / f"{entry['certname']}.json", results[entry["certname"]], compact=True)
 
+    timestamps = {server["certname"]: server["timestamp"] for server in servers_by_name[name]}
+    history_rows.append((name, data, index, rules, results, timestamps))
+
     if out_dir.exists():
         out_dir.rename(old_dir)
     tmp_dir.rename(out_dir)
     shutil.rmtree(old_dir, ignore_errors=True)
     print(f"wrote {written} referte files and {len(index)} server files to {out_dir}")
+
+# all OS versions in one transaction: a failed run leaves the history as it was
+with history:
+    for name, data, index, rules, results, timestamps in history_rows:
+        changes = scap_history.record_os(history, SCAN_DATE, name, CIS_VERSIONS.get(name),
+                                         data, index, rules, results, timestamps)
+        print(f"history {name}: {len(index)} servers, {changes} changes")
+    cutoff = scap_history.apply_retention(history, SCAN_DATE)
+history.close()
+print(f"history in {HISTORY_DB}, kept from {cutoff}")
