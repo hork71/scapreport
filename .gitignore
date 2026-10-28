@@ -10,3 +10,6 @@ __pycache__/
 
 # history of the SCAP results, written by the nightly script
 scap_history.sqlite
+
+# raw nightly PuppetDB responses (layer 3), written by the nightly script
+history/

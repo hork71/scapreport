@@ -9,11 +9,22 @@ Layer 2, changes per control for "since when?":
   scap_change         every status change: old_status -> new_status on scan_date
                       (old_status NULL: new control or server; new_status 'removed': gone)
 
+Layer 3, audit evidence:
+  history/<scan_date>.json.gz   the raw PuppetDB response of that night, exactly as received
+  scap_archive                  per file: SHA-256 of the raw response and of the .gz file,
+                                number of rows, sizes and when it was fetched
+  python3 scap_history.py verify   checks every archived file against its checksums
+
 Only group_facts_by_osmajversion.py writes this database, once a night. Rerunning on the same
 day is safe: totals are replaced and changes are only logged against the stored state.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+import gzip
+import hashlib
+import io
 import sqlite3
+import sys
 
 RETENTION_DAYS = 365
 
@@ -60,6 +71,16 @@ CREATE TABLE IF NOT EXISTS scap_change (
     referte     TEXT,
     old_status  TEXT,
     new_status  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS scap_archive (
+    scan_date   TEXT PRIMARY KEY,
+    file        TEXT NOT NULL,
+    raw_sha256  TEXT NOT NULL,
+    file_sha256 TEXT NOT NULL,
+    rows        INTEGER NOT NULL,
+    raw_bytes   INTEGER NOT NULL,
+    file_bytes  INTEGER NOT NULL,
+    fetched_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS scap_change_control ON scap_change (os_version, certname, rule_id, scan_date);
 CREATE INDEX IF NOT EXISTS scap_change_date ON scap_change (scan_date);
@@ -148,9 +169,96 @@ def record_os(conn, scan_date, os_version, cis_version, referte_data, index, rul
     return len(changes)
 
 
+def write_archive(archive_dir, scan_date, raw):
+    """Write the raw PuppetDB response to <archive_dir>/<scan_date>.json.gz.
+
+    The gzip header has no time or file name, so the same response always gives the same file.
+    A rerun on the same day replaces that day's file. Returns the values for record_archive.
+    """
+    archive_dir = Path(archive_dir)
+    archive_dir.mkdir(exist_ok=True)
+    name = f"{scan_date}.json.gz"
+    buffer = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", compresslevel=9, fileobj=buffer, mtime=0) as gz:
+        gz.write(raw)
+    packed = buffer.getvalue()
+    tmp_file = archive_dir / f".{name}.tmp"
+    tmp_file.write_bytes(packed)
+    tmp_file.replace(archive_dir / name)
+    return {
+        "file": name,
+        "raw_sha256": hashlib.sha256(raw).hexdigest(),
+        "file_sha256": hashlib.sha256(packed).hexdigest(),
+        "raw_bytes": len(raw),
+        "file_bytes": len(packed),
+    }
+
+
+def record_archive(conn, scan_date, archive, rows, fetched_at=None):
+    """Store the checksums of the file from write_archive. Call inside the run's transaction."""
+    fetched_at = fetched_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn.execute(
+        "INSERT OR REPLACE INTO scap_archive VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (scan_date, archive["file"], archive["raw_sha256"], archive["file_sha256"],
+         rows, archive["raw_bytes"], archive["file_bytes"], fetched_at),
+    )
+
+
 def apply_retention(conn, scan_date, days=RETENTION_DAYS):
-    """Delete history older than the retention period. scap_state is the current state and stays."""
+    """Delete history older than the retention period. scap_state is the current state and stays.
+
+    Archive rows are deleted here as well; the files they name are returned, so they can be
+    removed with remove_files once this transaction is committed.
+    """
     cutoff = (date.fromisoformat(scan_date) - timedelta(days=days)).isoformat()
     for table in ("scap_referte_daily", "scap_server_daily", "scap_change"):
         conn.execute(f"DELETE FROM {table} WHERE scan_date < ?", (cutoff,))
-    return cutoff
+    old_files = [file for (file,) in conn.execute(
+        "SELECT file FROM scap_archive WHERE scan_date < ?", (cutoff,))]
+    conn.execute("DELETE FROM scap_archive WHERE scan_date < ?", (cutoff,))
+    return cutoff, old_files
+
+
+def remove_files(archive_dir, files):
+    for file in files:
+        try:
+            (Path(archive_dir) / file).unlink()
+        except FileNotFoundError:
+            pass
+
+
+def verify(conn, archive_dir):
+    """Check every archived file against its stored checksums. Returns the number of problems."""
+    problems = 0
+    for scan_date, file, raw_sha256, file_sha256, rows in conn.execute(
+            "SELECT scan_date, file, raw_sha256, file_sha256, rows FROM scap_archive ORDER BY scan_date"):
+        path = Path(archive_dir) / file
+        if not path.exists():
+            result = "MISSING"
+        else:
+            packed = path.read_bytes()
+            if hashlib.sha256(packed).hexdigest() != file_sha256:
+                result = "FILE CHECKSUM WRONG"
+            elif hashlib.sha256(gzip.decompress(packed)).hexdigest() != raw_sha256:
+                result = "CONTENT CHECKSUM WRONG"
+            else:
+                result = "ok"
+        problems += result != "ok"
+        print(f"{scan_date}  {file}  {rows} rows  {result}")
+    return problems
+
+
+if __name__ == "__main__":
+    # python3 scap_history.py verify [scap_history.sqlite] [history dir]
+    if sys.argv[1:2] != ["verify"]:
+        sys.exit("usage: python3 scap_history.py verify [db file] [archive dir]")
+    here = Path(__file__).resolve().parent
+    db_file = Path(sys.argv[2]) if len(sys.argv) > 2 else here / "scap_history.sqlite"
+    archive_dir = Path(sys.argv[3]) if len(sys.argv) > 3 else here / "history"
+    if not db_file.exists():
+        sys.exit(f"{db_file} not found")
+    conn = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
+    problems = verify(conn, archive_dir)
+    conn.close()
+    print("all files ok" if not problems else f"{problems} problem(s)")
+    sys.exit(1 if problems else 0)

@@ -176,10 +176,15 @@ def load_cis_versions():
 
 # history of totals and changes per control, see scap_history.py
 HISTORY_DB = Path(__file__).resolve().parent / "scap_history.sqlite"
+ARCHIVE_DIR = Path(__file__).resolve().parent / "history"
 SCAN_DATE = date.today().isoformat()
 CIS_VERSIONS = load_cis_versions()
 history = scap_history.connect(HISTORY_DB)
 history_rows = []
+
+# layer 3: keep the raw response as audit evidence, before anything is derived from it
+archive = scap_history.write_archive(ARCHIVE_DIR, SCAN_DATE, response.content)
+print(f"archived {len(rows)} rows to {ARCHIVE_DIR / archive['file']} ({archive['file_bytes']} bytes)")
 
 
 def write_json(path, data, compact=False):
@@ -249,6 +254,9 @@ with history:
         changes = scap_history.record_os(history, SCAN_DATE, name, CIS_VERSIONS.get(name),
                                          data, index, rules, results, timestamps)
         print(f"history {name}: {len(index)} servers, {changes} changes")
-    cutoff = scap_history.apply_retention(history, SCAN_DATE)
+    scap_history.record_archive(history, SCAN_DATE, archive, len(rows))
+    cutoff, old_files = scap_history.apply_retention(history, SCAN_DATE)
 history.close()
-print(f"history in {HISTORY_DB}, kept from {cutoff}")
+# delete expired archive files only after their rows are gone from the database
+scap_history.remove_files(ARCHIVE_DIR, old_files)
+print(f"history in {HISTORY_DB}, kept from {cutoff}, removed {len(old_files)} old archive file(s)")
