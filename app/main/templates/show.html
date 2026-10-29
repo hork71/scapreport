@@ -42,6 +42,28 @@
           {% if scap.other %}<span class="badge bg-secondary">{{ scap.other|length }} overig</span>{% endif %}
         </div>
       </div>
+      {% if hist %}
+      <div class="card-body pb-0">
+        <div class="text-muted small">Fail, laatste {{ hist.days }} dagen</div>
+        <div style="height: 50px;"><canvas id="scap-trend"></canvas></div>
+        {% if hist.before %}
+        <div class="small">{{ hist.before.scan_date|datum }}: {{ hist.before.failed }} fail &rarr; {{ hist.now.scan_date|datum }}: {{ hist.now.failed }} fail</div>
+        {% endif %}
+        {% if hist.changes %}
+        <details class="mt-1">
+          <summary class="small">Wijzigingen ({{ hist.change_days }} dagen): {{ hist.changes|length }}{% if hist.truncated %}+{% endif %}</summary>
+          <ul class="list-unstyled small mb-1 ps-3" style="max-height: 200px; overflow-y: auto;">
+            {% for change in hist.changes %}
+            {% set rule = scap.rules.get(change.rule_id, {}) %}
+            <li title="{{ rule.titel or change.rule_id }}">{{ change.datum }} <a href="{{ url_for('main.show_server', os_version=osb.data[0].os_version, certname=change.certname) }}" class="text-decoration-none">{{ change.certname }}</a>: {{ change.old }} &rarr; {{ change.new }}</li>
+            {% endfor %}
+          </ul>
+        </details>
+        {% else %}
+        <div class="small text-muted mt-1">Geen wijzigingen in {{ hist.change_days }} dagen.</div>
+        {% endif %}
+      </div>
+      {% endif %}
       <div class="card-body">
         <ul class="list-group list-group-flush">
           {% for rule_id, rule in scap.rules.items() %}
@@ -135,6 +157,13 @@
 </div>
 {% endblock %}
 {% block scripts %}
+{% if hist %}
+<script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+<script>
+{% include '_sparkline.html' %}
+  sparkline(document.getElementById('scap-trend'), {{ hist.trend | tojson }}, 'Fail', '#dc3545');
+</script>
+{% endif %}
 <script>
   window.addEventListener("beforeunload", function() {
       $.ajax({

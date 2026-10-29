@@ -10,7 +10,7 @@
   <h5 class="mb-0">{{ certname }}</h5>
   <a href="{{ url_for('main.servers') }}" class="btn btn-primary btn-sm fs-6" role="button">Alle servers</a>
 </div>
-<div class="row row-cols-2 row-cols-md-{{ figures|length }} g-3 mb-2">
+<div class="row row-cols-2 row-cols-md-{{ figures|length + (1 if hist.trend else 0) }} g-3 mb-2">
   {% for label, value in figures %}
   <div class="col">
     <div class="card h-100">
@@ -21,29 +21,80 @@
     </div>
   </div>
   {% endfor %}
+  {% if hist.trend %}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body py-2">
+        <div class="text-muted small">Fail, laatste {{ hist.days }} dagen</div>
+        <div style="height: 30px;"><canvas id="server-trend"></canvas></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 <p class="text-muted small mb-3">Fail/Pass tellen per referte; een referte faalt als een van de controls faalt.</p>
+{% if hist.stale_facts %}
+<div class="alert alert-warning py-2 small">
+  De facts van deze server zijn van {{ hist.stale_facts|datum }}, de laatste scan was op {{ hist.last_scan|datum }}.
+  De resultaten zijn mogelijk verouderd.
+</div>
+{% endif %}
 
-<table id="controls" class="table table-bordered table-sm" cellspacing="0" style="width:100%">
-    <thead>
-        <tr>
-            <th>Nr</th>
-            <th>Voorschrift</th>
-            <th>SCAP control</th>
-            <th>Schaal</th>
-            <th>Resultaat</th>
-            <th>Reden</th>
-        </tr>
-    </thead>
-    <tbody>
-    </tbody>
-</table>
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="controls-tab" data-bs-toggle="tab" data-bs-target="#controls-pane" type="button" role="tab" aria-controls="controls-pane" aria-selected="true">Controls</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="historie-tab" data-bs-toggle="tab" data-bs-target="#historie-pane" type="button" role="tab" aria-controls="historie-pane" aria-selected="false">Historie <small>({{ hist.changes|length }}{% if hist.truncated %}+{% endif %} wijzigingen, {{ hist.days }} dagen)</small></button>
+  </li>
+</ul>
+<div class="tab-content">
+  <div class="tab-pane fade show active" id="controls-pane" role="tabpanel" aria-labelledby="controls-tab">
+    <table id="controls" class="table table-bordered table-sm" cellspacing="0" style="width:100%">
+        <thead>
+            <tr>
+                <th>Nr</th>
+                <th>Voorschrift</th>
+                <th>SCAP control</th>
+                <th>Schaal</th>
+                <th>Resultaat</th>
+                <th>Sinds</th>
+                <th>Reden</th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
+  </div>
+  <div class="tab-pane fade" id="historie-pane" role="tabpanel" aria-labelledby="historie-tab">
+    {% if hist.truncated %}
+    <p class="text-muted small">Alleen de laatste {{ hist.changes|length }} wijzigingen worden getoond.</p>
+    {% endif %}
+    <table id="changes" class="table table-bordered table-sm" cellspacing="0" style="width:100%">
+        <thead>
+            <tr>
+                <th>Datum</th>
+                <th>Nr</th>
+                <th>SCAP control</th>
+                <th>Oud</th>
+                <th>Nieuw</th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
 <script>
   const ROWS = {{ rows | tojson }};
+  const CHANGES = {{ hist.changes | tojson }};
+  const TREND = {{ hist.trend | tojson }};
 {% include '_datatables_taal.html' %}
+{% include '_sparkline.html' %}
 
   // SCAP texts come from the servers, so escape them before DataTables inserts them as html
   function esc(text) {
@@ -58,7 +109,51 @@
     };
   }
 
+  // referte number, sorted numerically and linked to its benchmark page
+  function referte_column() {
+    return {data: 'referte',
+      render: function (data, type, row, meta) {
+        if (type == 'sort' || type == 'type') return row.referte_sort;
+        if (type === 'display' && row.baseline_id) {
+          return `<a href="/baseline/benchmark/${row.baseline_id}" target="_blank" class="text-decoration-none">${esc(data)}</a>`;
+        }
+        return type === 'display' ? esc(data) : data;
+      }
+    };
+  }
+
+  function control_column() {
+    return {data: 'titel',
+      render: function (data, type, row, meta) {
+        return type === 'display' ? `<span title="${esc(row.rule_id)}">${esc(data || row.rule_id)}</span>` : data;
+      }
+    };
+  }
+
+  function changes_table() {
+    return $('#changes').DataTable({
+      data: CHANGES,
+      pageLength: 50,
+      order: [[0, 'desc']],
+      language: taal,
+      responsive: true,
+      columns: [
+        {data: 'scan_date',
+         render: function (data, type, row, meta) {
+          return type === 'display' ? esc(row.datum) : data;
+         }
+        },
+        referte_column(),
+        control_column(),
+        text_column('old'),
+        text_column('new'),
+      ],
+    });
+  }
+
   $(document).ready(function() {
+    sparkline(document.getElementById('server-trend'), TREND, 'Fail', '#dc3545');
+
     $('#controls').DataTable({
       data: ROWS,
       pageLength: 50,
@@ -66,21 +161,9 @@
       language: taal,
       responsive: true,
       columns: [
-        {data: 'referte',
-         render: function (data, type, row, meta) {
-          if (type == 'sort' || type == 'type') return row.referte_sort;
-          if (type === 'display' && row.baseline_id) {
-            return `<a href="/baseline/benchmark/${row.baseline_id}" target="_blank" class="text-decoration-none">${esc(data)}</a>`;
-          }
-          return type === 'display' ? esc(data) : data;
-         }
-        },
+        referte_column(),
         text_column('voorschrift'),
-        {data: 'titel',
-         render: function (data, type, row, meta) {
-          return type === 'display' ? `<span title="${esc(row.rule_id)}">${esc(data || row.rule_id)}</span>` : data;
-         }
-        },
+        control_column(),
         text_column('schaal'),
         {data: 'status',
          render: function (data, type, row, meta) {
@@ -88,8 +171,27 @@
           return type === 'display' ? esc(data) : data;
          }
         },
+        {data: 'since',
+         render: function (data, type, row, meta) {
+          if (type !== 'display') return data;
+          if (row.since_start) {
+            return `<span title="Deze status was er al bij de start van de historie">&le; ${esc(row.since_datum)}</span>`;
+          }
+          return esc(row.since_datum);
+         }
+        },
         text_column('reason'),
       ],
+    });
+
+    // the history table is built the first time its tab is opened
+    var changes = null;
+    $('#historie-tab').on('shown.bs.tab', function () {
+      if (changes) {
+        changes.columns.adjust().responsive.recalc();
+      } else {
+        changes = changes_table();
+      }
     });
   });
 </script>

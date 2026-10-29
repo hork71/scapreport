@@ -1,0 +1,28 @@
+{# trend line helper, included inside a <script> block; needs static/js/chart.umd.min.js #}
+  // small trend line without axes, from [{date, value}]; draws nothing when chart.js is not loaded
+  function sparkline(canvas, points, label, color) {
+    if (!window.Chart || !canvas || !points.length) return;
+    new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: points.map(function (p) { return p.date; }),
+        datasets: [{
+          label: label,
+          data: points.map(function (p) { return p.value; }),
+          borderColor: color,
+          backgroundColor: color,
+          borderWidth: 2,
+          pointRadius: points.length == 1 ? 3 : 0,
+          pointHitRadius: 6,
+          tension: 0.2,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {legend: {display: false}},
+        scales: {x: {display: false}, y: {display: false, beginAtZero: true}},
+      },
+    });
+  }

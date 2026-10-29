@@ -84,6 +84,10 @@ CREATE TABLE IF NOT EXISTS scap_archive (
 );
 CREATE INDEX IF NOT EXISTS scap_change_control ON scap_change (os_version, certname, rule_id, scan_date);
 CREATE INDEX IF NOT EXISTS scap_change_date ON scap_change (scan_date);
+-- for the Flask pages: one referte or one server over time
+CREATE INDEX IF NOT EXISTS scap_referte_daily_ref ON scap_referte_daily (os_version, referte, scan_date);
+CREATE INDEX IF NOT EXISTS scap_server_daily_server ON scap_server_daily (os_version, certname, scan_date);
+CREATE INDEX IF NOT EXISTS scap_change_referte ON scap_change (os_version, referte, scan_date);
 """
 
 

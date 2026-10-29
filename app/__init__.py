@@ -16,6 +16,7 @@ def create_app():
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         SQLALCHEMY_ECHO=True,
         SCAP_REPORT_DIR=os.getenv("SCAP_REPORT_DIR") or '/data/linux/py/baseline/reports',
+        SCAP_HISTORY_DB=os.getenv("SCAP_HISTORY_DB") or '/data/linux/py/baseline/scap_history.sqlite',
         DEBUG=True
     )
 

@@ -10,7 +10,7 @@ from sqlalchemy import desc
 
 sys.path.append(os.path.abspath("./app/main/"))
 import utils
-from app.main import scap_results
+from app.main import scap_results, history
 from app.main.tabs import TABS, TABS_BY_API, TABS_BY_OS
 
 
@@ -19,6 +19,10 @@ main = Blueprint('main', __name__, template_folder='templates')
 @main.context_processor
 def inject_tabs():
     return {'tabs': TABS}
+
+@main.app_template_filter('datum')
+def datum(value):
+    return history.nl_date(value)
 
 class DataForm(FlaskForm):
   osversie = StringField("Os")
@@ -75,13 +79,27 @@ def show_server(os_version, certname):
     # link each control to its benchmark page and show the CIS title
     baselines = {b.ruleid: b for b in Baseline.query.filter(Baseline.os_version == os_version,
                                                             Baseline.cis_version == tab['cis_version'])}
+    hist = history.server(os_version, tab['cis_version'], certname)
     for row in rows:
         baseline = baselines.get(row['referte'])
         row['baseline_id'] = baseline.id if baseline else None
         row['voorschrift'] = baseline.name if baseline else ''
+        # since: the date the control got its current status
+        row['since'] = hist['since'].get(row['rule_id'], '')
+        row['since_datum'] = history.nl_date(row['since'])
+        row['since_start'] = bool(row['since'] and hist['start'] and row['since'] <= hist['start'])
+
+    # changes of this server, with the same links and titles as the controls table
+    titles = {row['rule_id']: row['titel'] for row in rows}
+    for change in hist['changes']:
+        baseline = baselines.get(change['referte'])
+        change['baseline_id'] = baseline.id if baseline else None
+        change['referte'] = change['referte'] or ''
+        change['referte_sort'] = scap_results.referte_sort_key(change['referte'])
+        change['titel'] = titles.get(change['rule_id'], '')
 
     return render_template('server.html', tab=tab, certname=certname,
-                           info=info, rows=rows)
+                           info=info, rows=rows, hist=hist)
 
 @main.route('/benchmark/<id>')
 @login_required
@@ -91,9 +109,13 @@ def show_osb(id):
     pdfinput = utils.start_eind(osb)
     eindbestand = utils.genereer_pdf(pdfinput)
 
-    scap = scap_results.lookup(osb['data'][0]['os_version'], osb['data'][0]['ruleid']) if osb['data'] else None
+    scap, hist = None, None
+    if osb['data']:
+        baseline = osb['data'][0]
+        scap = scap_results.lookup(baseline['os_version'], baseline['ruleid'])
+        hist = history.referte(baseline['os_version'], baseline['cis_version'], baseline['ruleid'])
 
-    return render_template('show.html', osb=osb, eindbestand=eindbestand, scap=scap)
+    return render_template('show.html', osb=osb, eindbestand=eindbestand, scap=scap, hist=hist)
 
 @main.route('/deletepdf/<id>')
 @login_required
