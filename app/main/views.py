@@ -1,6 +1,10 @@
 import sys
 import os
-from flask import Blueprint, render_template, session, request, url_for, redirect, flash, abort
+import csv
+import io
+from datetime import date, timedelta
+from itertools import islice
+from flask import Blueprint, render_template, session, request, url_for, redirect, flash, abort, Response, stream_with_context
 from flask_wtf import FlaskForm
 from wtforms import StringField, SubmitField
 from app import db
@@ -67,6 +71,11 @@ def servers_api(os_version):
     TABS_BY_OS.get(os_version) or abort(404)
     return {'data': scap_results.servers(os_version)}
 
+def baselines_by_ruleid(os_version, cis_version):
+    """{ruleid: Baseline} of one os_version and CIS version, to link refertes to their benchmark page."""
+    return {b.ruleid: b for b in Baseline.query.filter(Baseline.os_version == os_version,
+                                                      Baseline.cis_version == cis_version)}
+
 @main.route('/server/<os_version>/<certname>')
 @login_required
 def show_server(os_version, certname):
@@ -77,8 +86,7 @@ def show_server(os_version, certname):
     info = next((s for s in scap_results.servers(os_version) if s['certname'] == certname), {})
 
     # link each control to its benchmark page and show the CIS title
-    baselines = {b.ruleid: b for b in Baseline.query.filter(Baseline.os_version == os_version,
-                                                            Baseline.cis_version == tab['cis_version'])}
+    baselines = baselines_by_ruleid(os_version, tab['cis_version'])
     hist = history.server(os_version, tab['cis_version'], certname)
     for row in rows:
         baseline = baselines.get(row['referte'])
@@ -92,14 +100,95 @@ def show_server(os_version, certname):
     # changes of this server, with the same links and titles as the controls table
     titles = {row['rule_id']: row['titel'] for row in rows}
     for change in hist['changes']:
-        baseline = baselines.get(change['referte'])
-        change['baseline_id'] = baseline.id if baseline else None
-        change['referte'] = change['referte'] or ''
-        change['referte_sort'] = scap_results.referte_sort_key(change['referte'])
+        add_baseline(change, baselines)
         change['titel'] = titles.get(change['rule_id'], '')
 
     return render_template('server.html', tab=tab, certname=certname,
                            info=info, rows=rows, hist=hist)
+
+@main.route('/historie')
+@login_required
+def historie():
+    return render_template('historie.html', periods=history.PERIODS, default_days=history.TREND_DAYS,
+                           max_changes=history.MAX_LIST_CHANGES,
+                           date_to=date.today(), date_from=date.today() - timedelta(days=history.LIST_DAYS - 1))
+
+def add_baseline(row, baselines):
+    """Benchmark page link, voorschrift and numeric sort key for a row with a referte."""
+    baseline = baselines.get(row['referte'])
+    row['referte'] = row['referte'] or ''
+    row['referte_sort'] = scap_results.referte_sort_key(row['referte'])
+    row['baseline_id'] = baseline.id if baseline else None
+    row['voorschrift'] = baseline.name if baseline else ''
+    return row
+
+@main.route('/api/history/<os_version>/totals')
+@login_required
+def history_totals_api(os_version):
+    tab = TABS_BY_OS.get(os_version) or abort(404)
+    days = request.args.get('days', type=int)
+    if days not in history.PERIODS:
+        days = history.TREND_DAYS
+    totals = history.os_totals(os_version, tab['cis_version'], days)
+    baselines = baselines_by_ruleid(os_version, tab['cis_version'])
+    for row in totals['worse'] + totals['better']:
+        add_baseline(row, baselines)
+    return totals
+
+def date_arg(name, default):
+    try:
+        return date.fromisoformat(request.args.get(name, ''))
+    except ValueError:
+        return default
+
+def csv_cell(value):
+    """Plain text in Excel: a value starting with = + - or @ would be read as a formula."""
+    value = '' if value is None else str(value)
+    return "'" + value if value[:1] in ('=', '+', '-', '@') else value
+
+@main.route('/api/history/<os_version>/changes')
+@login_required
+def history_changes_api(os_version):
+    """Changes in a date range: ?from=2026-10-01&to=2026-10-07, &nieuw=1 to include new and
+    removed servers, &format=csv for the export."""
+    tab = TABS_BY_OS.get(os_version) or abort(404)
+    date_to = date_arg('to', date.today())
+    date_from = date_arg('from', date_to - timedelta(days=history.LIST_DAYS - 1))
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+    include_new = request.args.get('nieuw') == '1'
+    titles = scap_results.rules(os_version)
+    baselines = baselines_by_ruleid(os_version, tab['cis_version'])
+
+    def rows(limit=None):
+        for change in history.os_changes(os_version, tab['cis_version'], date_from.isoformat(),
+                                         date_to.isoformat(), include_new, limit):
+            change['titel'] = titles.get(change['rule_id'], {}).get('titel', '')
+            yield add_baseline(change, baselines)
+
+    if request.args.get('format') == 'csv':
+        def generate():
+            # BOM and ; so Excel with Dutch settings opens it in columns
+            out = io.StringIO()
+            writer = csv.writer(out, delimiter=';')
+            writer.writerow(['datum', 'os_version', 'cis_version', 'server', 'referte', 'voorschrift',
+                             'control', 'titel', 'oud', 'nieuw'])
+            yield '\ufeff' + out.getvalue()
+            for row in rows():
+                out.seek(0)
+                out.truncate()
+                writer.writerow([csv_cell(v) for v in (
+                    row['scan_date'], os_version, tab['cis_version'], row['certname'], row['referte'],
+                    row['voorschrift'], row['rule_id'], row['titel'], row['old'], row['new'])])
+                yield out.getvalue()
+
+        filename = f"scap_wijzigingen_{os_version}_{date_from}_{date_to}.csv"
+        return Response(stream_with_context(generate()), mimetype='text/csv',
+                        headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
+    data = list(islice(rows(history.MAX_LIST_CHANGES + 1), history.MAX_LIST_CHANGES + 1))
+    return {'data': data[:history.MAX_LIST_CHANGES], 'truncated': len(data) > history.MAX_LIST_CHANGES,
+            'from': date_from.isoformat(), 'to': date_to.isoformat()}
 
 @main.route('/benchmark/<id>')
 @login_required

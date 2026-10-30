@@ -34,6 +34,9 @@
           <li class="nav-item {{ 'active' if active_page == 'servers' }}">
             <a href="{{ url_for('main.servers') }}" class="nav-link">Servers</a>
           </li>
+          <li class="nav-item {{ 'active' if active_page == 'historie' }}">
+            <a href="{{ url_for('main.historie') }}" class="nav-link">Historie</a>
+          </li>
           <li class="nav-item {{ 'active' if active_page == 'account' }}">
             <a href="{{ url_for('account.show', username=current_user.username) }}" class="nav-link">( {{ current_user.username }} )</a>
           </li>

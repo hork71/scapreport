@@ -1,0 +1,315 @@
+{% extends 'base.html' %}
+{% set active_page = 'historie' %}
+
+{# tabs: the OS tab list from app/main/tabs.py; each tab loads its history the first time it is opened #}
+
+{% block content %}
+<ul class="nav nav-pills mb-3" id="historieTab" role="tablist">
+  {% for tab in tabs %}
+  <li class="nav-item" role="presentation">
+  <button class="nav-link{% if loop.first %} active{% endif %}" id="{{ tab.pane }}-tab" data-bs-toggle="tab" data-bs-target="#{{ tab.pane }}" type="button" role="tab" aria-controls="{{ tab.pane }}" aria-selected="{{ 'true' if loop.first else 'false' }}">{{ tab.label }} <small>({{ tab.version }})</small></button>
+  </li>
+  {% endfor %}
+</ul>
+<div class="tab-content" id="historieTabContent">
+  {% for tab in tabs %}
+  {% set p = tab.table %}
+  <div class="tab-pane fade{% if loop.first %} show active{% endif %}" id="{{ tab.pane }}" role="tabpanel" aria-labelledby="{{ tab.pane }}-tab">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">Trend</h5>
+      <div class="btn-group btn-group-sm" role="group" aria-label="Periode">
+        {% for days in periods %}
+        <input type="radio" class="btn-check" name="{{ p }}-days" id="{{ p }}-days-{{ days }}" value="{{ days }}" autocomplete="off"{% if days == default_days %} checked{% endif %}>
+        <label class="btn btn-outline-primary" for="{{ p }}-days-{{ days }}">{{ days }} dagen</label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div id="{{ p }}-empty" class="text-muted small mb-3 d-none">Nog geen historie voor deze periode.</div>
+    <div id="{{ p }}-trend">
+      <div class="row row-cols-1 row-cols-md-3 g-3 mb-3">
+        {% for key, label in [('servers', 'Servers'), ('pass_pct', 'Pass (% van de referte resultaten)'), ('avg_failed', 'Gem. fail refertes per server')] %}
+        <div class="col">
+          <div class="card h-100">
+            <div class="card-body py-2">
+              <div class="text-muted small">{{ label }}</div>
+              <div class="fs-5"><strong id="{{ p }}-now-{{ key }}"></strong></div>
+              <div class="text-muted small" id="{{ p }}-before-{{ key }}"></div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="row g-3 mb-4">
+        <div class="col-md-8">
+          <div style="height: 260px;"><canvas id="{{ p }}-chart-pass"></canvas></div>
+        </div>
+        <div class="col-md-4">
+          <div style="height: 260px;"><canvas id="{{ p }}-chart-servers"></canvas></div>
+        </div>
+      </div>
+
+      <div class="row g-4 mb-4">
+        {% for key, label in [('worse', 'Grootste verslechteringen'), ('better', 'Grootste verbeteringen')] %}
+        <div class="col-md-6">
+          <h6>{{ label }}</h6>
+          <table id="{{ p }}-{{ key }}" class="table table-bordered table-sm" cellspacing="0" style="width:100%">
+            <thead>
+              <tr>
+                <th>Nr</th>
+                <th>Voorschrift</th>
+                <th>Fail begin</th>
+                <th>Fail nu</th>
+                <th>Verschil</th>
+              </tr>
+            </thead>
+            <tbody>
+            </tbody>
+          </table>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <h5>Wijzigingen</h5>
+    <form class="row row-cols-auto g-2 align-items-center mb-2" id="{{ p }}-form">
+      <div class="col">
+        <label class="visually-hidden" for="{{ p }}-from">Van</label>
+        <input type="date" class="form-control form-control-sm" id="{{ p }}-from" value="{{ date_from.isoformat() }}">
+      </div>
+      <div class="col">t/m</div>
+      <div class="col">
+        <label class="visually-hidden" for="{{ p }}-to">Tot en met</label>
+        <input type="date" class="form-control form-control-sm" id="{{ p }}-to" value="{{ date_to.isoformat() }}">
+      </div>
+      <div class="col">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="{{ p }}-nieuw">
+          <label class="form-check-label small" for="{{ p }}-nieuw">Nieuwe en verwijderde servers tonen</label>
+        </div>
+      </div>
+      <div class="col">
+        <button type="submit" class="btn btn-primary btn-sm">Toon</button>
+        <button type="button" class="btn btn-outline-primary btn-sm" id="{{ p }}-csv">CSV export</button>
+      </div>
+    </form>
+    <p id="{{ p }}-truncated" class="text-muted small d-none">Alleen de laatste {{ '{:,}'.format(max_changes).replace(',', '.') }} wijzigingen worden getoond; de CSV export bevat ze allemaal.</p>
+    <table id="{{ p }}-changes" class="table table-bordered table-sm" cellspacing="0" style="width:100%">
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Server</th>
+          <th>Nr</th>
+          <th>SCAP control</th>
+          <th>Oud</th>
+          <th>Nieuw</th>
+        </tr>
+      </thead>
+      <tbody>
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+<script>
+  const TABS = {{ tabs | tojson }};
+  const DEFAULT_DAYS = {{ default_days }};
+{% include '_datatables_taal.html' %}
+
+  function esc(text) {
+    return $('<div>').text(text == null ? '' : text).html();
+  }
+
+  function text_column(field) {
+    return {data: field,
+      render: function (data, type, row, meta) {
+        return type === 'display' ? esc(data) : data;
+      }
+    };
+  }
+
+  // referte number, sorted numerically and linked to its benchmark page
+  function referte_column() {
+    return {data: 'referte',
+      render: function (data, type, row, meta) {
+        if (type == 'sort' || type == 'type') return row.referte_sort;
+        if (type === 'display' && row.baseline_id) {
+          return `<a href="/baseline/benchmark/${row.baseline_id}" target="_blank" class="text-decoration-none">${esc(data)}</a>`;
+        }
+        return type === 'display' ? esc(data) : data;
+      }
+    };
+  }
+
+  function number(value, suffix) {
+    return value == null ? '\u2013' : String(value).replace('.', ',') + (suffix || '');
+  }
+
+  function line_chart(canvas, labels, datasets, scales) {
+    if (!window.Chart) return null;
+    return new Chart(canvas, {
+      type: 'line',
+      data: {labels: labels, datasets: datasets},
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: {mode: 'index', intersect: false},
+        scales: Object.assign({x: {ticks: {maxTicksLimit: 8}}}, scales),
+      },
+    });
+  }
+
+  function dataset(label, values, color, axis) {
+    return {label: label, data: values, borderColor: color, backgroundColor: color, yAxisID: axis,
+            borderWidth: 2, pointRadius: values.length == 1 ? 3 : 0, tension: 0.2, spanGaps: true};
+  }
+
+  function movers_table(id) {
+    return $('#' + id).DataTable({
+      data: [],
+      paging: false,
+      searching: false,
+      info: false,
+      order: [[4, 'desc']],
+      language: Object.assign({}, taal, {sEmptyTable: 'Geen'}),
+      responsive: true,
+      columns: [
+        referte_column(),
+        text_column('voorschrift'),
+        {data: 'before', className: 'dt-center'},
+        {data: 'now', className: 'dt-center'},
+        {data: 'delta', className: 'dt-center',
+         render: function (data, type, row, meta) {
+          if (type !== 'display') return Math.abs(data);
+          return data > 0 ? '+' + data : '−' + Math.abs(data);
+         }
+        },
+      ],
+    });
+  }
+
+  function history_tab(tab) {
+    var p = tab.table;
+    var view = {charts: [], worse: movers_table(p + '-worse'), better: movers_table(p + '-better')};
+
+    function load_totals() {
+      var days = $(`input[name="${p}-days"]:checked`).val() || DEFAULT_DAYS;
+      $.getJSON(`/baseline/api/history/${tab.os_version}/totals`, {days: days}).done(function (totals) {
+        var points = totals.points;
+        $('#' + p + '-empty').toggleClass('d-none', points.length > 0);
+        $('#' + p + '-trend').toggleClass('d-none', points.length == 0);
+        view.charts.forEach(function (chart) { chart.destroy(); });
+        view.charts = [];
+        if (!points.length) return;
+
+        // latest value, and the first day of the period below it
+        var first = points[0], last = points[points.length - 1];
+        [['servers', ''], ['pass_pct', '%'], ['avg_failed', '']].forEach(function (f) {
+          $(`#${p}-now-${f[0]}`).text(number(last[f[0]], f[1]));
+          $(`#${p}-before-${f[0]}`).text(points.length > 1 ? `${first.date}: ${number(first[f[0]], f[1])}` : '');
+        });
+
+        var labels = points.map(function (pt) { return pt.date; });
+        var values = function (key) { return points.map(function (pt) { return pt[key]; }); };
+        view.charts = [
+          line_chart(document.getElementById(p + '-chart-pass'), labels,
+            [dataset('Pass %', values('pass_pct'), '#198754', 'y'),
+             dataset('Gem. fail refertes per server', values('avg_failed'), '#dc3545', 'y1')],
+            {y: {min: 0, max: 100, position: 'left', title: {display: true, text: 'Pass %'}},
+             y1: {beginAtZero: true, position: 'right', grid: {drawOnChartArea: false},
+                  title: {display: true, text: 'Fail refertes per server'}}}),
+          line_chart(document.getElementById(p + '-chart-servers'), labels,
+            [dataset('Servers', values('servers'), '#0d6efd', 'y')],
+            {y: {beginAtZero: true}}),
+        ].filter(Boolean);
+
+        ['worse', 'better'].forEach(function (key) {
+          view[key].clear().rows.add(totals[key]).draw();
+        });
+      });
+    }
+
+    function changes_url(format) {
+      var params = {from: $('#' + p + '-from').val(), to: $('#' + p + '-to').val()};
+      if ($('#' + p + '-nieuw').is(':checked')) params.nieuw = 1;
+      if (format) params.format = format;
+      return `/baseline/api/history/${tab.os_version}/changes?` + $.param(params);
+    }
+
+    view.changes = $('#' + p + '-changes').DataTable({
+      ajax: {
+        url: changes_url(),
+        dataSrc: function (json) {
+          $('#' + p + '-truncated').toggleClass('d-none', !json.truncated);
+          return json.data;
+        },
+      },
+      pageLength: 50,
+      order: [[0, 'desc']],
+      language: taal,
+      responsive: true,
+      columns: [
+        {data: 'scan_date',
+         render: function (data, type, row, meta) {
+          return type === 'display' ? esc(row.datum) : data;
+         }
+        },
+        {data: 'certname',
+         render: function (data, type, row, meta) {
+          if (type !== 'display') return data;
+          return `<a href="/baseline/server/${tab.os_version}/${encodeURIComponent(data)}" class="text-decoration-none">${esc(data)}</a>`;
+         }
+        },
+        referte_column(),
+        {data: 'titel',
+         render: function (data, type, row, meta) {
+          return type === 'display' ? `<span title="${esc(row.rule_id)}">${esc(data || row.rule_id)}</span>` : data;
+         }
+        },
+        text_column('old'),
+        text_column('new'),
+      ],
+    });
+
+    $(`input[name="${p}-days"]`).on('change', load_totals);
+    $('#' + p + '-form').on('submit', function (event) {
+      event.preventDefault();
+      view.changes.ajax.url(changes_url()).load();
+    });
+    $('#' + p + '-csv').on('click', function () {
+      window.location = changes_url('csv');
+    });
+
+    load_totals();
+    return view;
+  }
+
+  $(document).ready(function() {
+    var views = {};
+    var first = TABS[0];
+    if (first) {
+      views['#' + first.pane] = history_tab(first);
+    }
+
+    $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (event) {
+      var pane = $(event.target).attr('data-bs-target');
+      if (views[pane]) {
+        ['worse', 'better', 'changes'].forEach(function (key) {
+          views[pane][key].columns.adjust().responsive.recalc();
+        });
+        return;
+      }
+      var tab = TABS.find(function (t) { return '#' + t.pane === pane; });
+      if (tab) {
+        views[pane] = history_tab(tab);
+      }
+    });
+  });
+</script>
+{% endblock %}

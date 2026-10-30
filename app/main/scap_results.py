@@ -51,6 +51,11 @@ def servers(os_version):
     return _read_json(os_version, "servers", "_index", default=[])
 
 
+def rules(os_version):
+    """Referte, titel and schaal per control of one os_version: {rule id: {...}}, or {}."""
+    return _read_json(os_version, "servers", "_rules", default={})
+
+
 def server(os_version, certname):
     """All control results of one server, sorted fail first, or None for an unknown server.
 
@@ -60,11 +65,11 @@ def server(os_version, certname):
     results = _read_json(os_version, "servers", certname)
     if results is None:
         return None
-    rules = _read_json(os_version, "servers", "_rules", default={})
+    titles = rules(os_version)
 
     rows = []
     for rule_id, result in results.items():
-        rule = rules.get(rule_id, {})
+        rule = titles.get(rule_id, {})
         status = result.get("resultaat") or ""
         if status in ("fail", "error") and result.get("exception"):
             status = "pass (uitzondering)"
