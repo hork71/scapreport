@@ -25,6 +25,7 @@
                 <th>Voorschrift</th>
                 <th>Type</th>
                 <th>Fail</th>
+                <th title="Verandering van het aantal servers met fail in de laatste 7 dagen">&Delta; 7d</th>
                 <th>Pass</th>
             </tr>
         </{{ section }}>
@@ -90,6 +91,21 @@
     };
   }
 
+  // change in failing servers over 7 days, as +3 / −5 / 0; empty without enough history
+  function delta_column(field) {
+    return {className: 'dt-center',
+     data: field,
+      render: function (data, type, row, meta) {
+        if (type == 'sort' || type == 'type') return data == null ? -1000000 : data;
+        if (type === 'display' || type === 'filter') {
+          if (data == null) return '';
+          return data > 0 ? '+' + data : (data < 0 ? '\u2212' + Math.abs(data) : '0');
+        }
+        return data;
+      }
+    };
+  }
+
   function baseline_table(tab) {
     var table = $('#' + tab.table).DataTable({
       pageLength: 25,
@@ -110,6 +126,7 @@
         {data: 'name'},
         {data: 'rule_type'},
         scap_column('scap_failed', 'danger'),
+        delta_column('scap_delta'),
         scap_column('scap_passed', 'success'),
       ],
     });

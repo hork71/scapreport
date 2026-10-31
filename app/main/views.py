@@ -46,12 +46,14 @@ def baseline_data(os_version, cis_version=None):
         query = query.filter(Baseline.cis_version == cis_version)
 
     totals = scap_results.summary(os_version)
+    deltas = history.referte_deltas(os_version, cis_version)
     data = []
     for baseline in query.all():
         row = baseline.to_dict()
         scap = totals.get(row['ruleid'], {})
         row['scap_failed'] = scap.get('failed')
         row['scap_passed'] = scap.get('passed')
+        row['scap_delta'] = deltas.get(row['ruleid'])
         data.append(row)
     return {'data': data}
 

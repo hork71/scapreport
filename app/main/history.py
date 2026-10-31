@@ -231,3 +231,35 @@ def os_changes(os_version, cis_version, date_from, date_to, include_new=False, l
         params.append(limit)
     for row in _iter_query(sql, params):
         yield _change(row)
+
+
+def referte_deltas(os_version, cis_version, days=COMPARE_DAYS):
+    """Change in failing servers per referte over the last `days` days, for the homepage.
+
+    Compares the last scan with the last scan at least `days` days before it:
+    {referte: now - before}. Refertes measured on only one of those days are left out,
+    and {} when the history does not go back far enough yet.
+    """
+    last = _query(
+        "SELECT MAX(scan_date) AS scan_date FROM scap_referte_daily WHERE os_version = ? AND cis_version IS ?",
+        (os_version, cis_version))
+    if not last or not last[0]["scan_date"]:
+        return {}
+    last = last[0]["scan_date"]
+    compare_date = (date.fromisoformat(last) - timedelta(days=days)).isoformat()
+    before = _query(
+        "SELECT MAX(scan_date) AS scan_date FROM scap_referte_daily"
+        " WHERE os_version = ? AND cis_version IS ? AND scan_date <= ?",
+        (os_version, cis_version, compare_date))
+    if not before or not before[0]["scan_date"]:
+        return {}
+    before = before[0]["scan_date"]
+
+    failed = {}
+    for row in _query(
+            "SELECT scan_date, referte, failed FROM scap_referte_daily"
+            " WHERE os_version = ? AND cis_version IS ? AND scan_date IN (?, ?)",
+            (os_version, cis_version, before, last)):
+        failed.setdefault(row["referte"], {})[row["scan_date"]] = row["failed"]
+    return {ref: by_date[last] - by_date[before]
+            for ref, by_date in failed.items() if before in by_date and last in by_date}
