@@ -1,4 +1,27 @@
 {# trend line helper, included inside a <script> block; needs static/js/chart.umd.min.js #}
+  // tooltip as an html element above the line: a tooltip drawn inside the small canvas gets cut off
+  function sparkline_tooltip(context) {
+    var el = document.getElementById('sparkline-tooltip');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'sparkline-tooltip';
+      el.className = 'bg-dark text-white small rounded px-2 py-1';
+      el.style.cssText = 'position: absolute; pointer-events: none; z-index: 1080; white-space: nowrap; display: none;';
+      document.body.appendChild(el);
+    }
+    var tooltip = context.tooltip;
+    if (tooltip.opacity === 0 || !tooltip.dataPoints || !tooltip.dataPoints.length) {
+      el.style.display = 'none';
+      return;
+    }
+    var point = tooltip.dataPoints[0];
+    el.textContent = point.label + ': ' + point.formattedValue + ' ' + point.dataset.label.toLowerCase();
+    el.style.display = 'block';
+    var rect = context.chart.canvas.getBoundingClientRect();
+    el.style.left = (window.scrollX + rect.left + tooltip.caretX - el.offsetWidth / 2) + 'px';
+    el.style.top = (window.scrollY + rect.top + tooltip.caretY - el.offsetHeight - 8) + 'px';
+  }
+
   // small trend line without axes, from [{date, value}]; draws nothing when chart.js is not loaded
   function sparkline(canvas, points, label, color) {
     if (!window.Chart || !canvas || !points.length) return;
@@ -21,7 +44,9 @@
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        plugins: {legend: {display: false}},
+        interaction: {mode: 'index', intersect: false},
+        layout: {padding: 3},   // room for the line's width at the top and bottom
+        plugins: {legend: {display: false}, tooltip: {enabled: false, external: sparkline_tooltip}},
         scales: {x: {display: false}, y: {display: false, beginAtZero: true}},
       },
     });

@@ -45,7 +45,7 @@
       {% if hist %}
       <div class="card-body pb-0">
         <div class="text-muted small">Fail, laatste {{ hist.days }} dagen</div>
-        <div style="height: 50px;"><canvas id="scap-trend"></canvas></div>
+        <div style="position: relative; height: 50px;"><canvas id="scap-trend"></canvas></div>
         {% if hist.before %}
         <div class="small">{{ hist.before.scan_date|datum }}: {{ hist.before.failed }} fail &rarr; {{ hist.now.scan_date|datum }}: {{ hist.now.failed }} fail</div>
         {% endif %}
