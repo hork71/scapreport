@@ -1,5 +1,6 @@
 {# trend line helper, included inside a <script> block; needs static/js/chart.umd.min.js #}
   // tooltip as an html element below the line: a tooltip drawn inside the small canvas gets cut off
+  const TOOLTIP_GAP = 8;   // px between the hovered point and the top of the tooltip
   function sparkline_tooltip(context) {
     var el = document.getElementById('sparkline-tooltip');
     if (!el) {
@@ -19,8 +20,9 @@
     el.style.display = 'block';
     var rect = context.chart.canvas.getBoundingClientRect();
     el.style.left = (window.scrollX + rect.left + tooltip.caretX - el.offsetWidth / 2) + 'px';
-    // below the chart, so the line and the text above it stay visible
-    el.style.top = (window.scrollY + rect.bottom + 6) + 'px';
+    // just below the hovered point, so the line and the text above it stay visible;
+    // measured from the point, so it fits charts of any height
+    el.style.top = (window.scrollY + rect.top + tooltip.caretY + TOOLTIP_GAP) + 'px';
   }
 
   // small trend line without axes, from [{date, value}]; draws nothing when chart.js is not loaded
