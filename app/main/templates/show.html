@@ -46,12 +46,12 @@
       <div class="card-body pb-0">
         <div class="text-muted small">Fail, laatste {{ hist.days }} dagen</div>
         <div style="position: relative; height: 50px;"><canvas id="scap-trend"></canvas></div>
-        {# the comparison and the changes in one dropdown, so the card stays compact under the line #}
+        {% if hist.before %}
+        {# short, so it fits on one line in the 300px card; the end date is always the latest scan #}
+        <div class="small" title="{{ hist.before.scan_date|datum }}: {{ hist.before.failed }} fail, {{ hist.now.scan_date|datum }}: {{ hist.now.failed }} fail">{{ hist.before.failed }} &rarr; {{ hist.now.failed }} fail (sinds {{ hist.before.scan_date|datum }})</div>
+        {% endif %}
         <details class="mt-1">
           <summary class="small">Wijzigingen ({{ hist.change_days }} dagen): {{ hist.changes|length }}{% if hist.truncated %}+{% endif %}</summary>
-          {% if hist.before %}
-          <div class="small ps-3 mb-1">{{ hist.before.scan_date|datum }}: {{ hist.before.failed }} fail &rarr; {{ hist.now.scan_date|datum }}: {{ hist.now.failed }} fail</div>
-          {% endif %}
           {% if hist.changes %}
           <ul class="list-unstyled small mb-1 ps-3" style="max-height: 200px; overflow-y: auto;">
             {% for change in hist.changes %}
